@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#15803d">
+<title>promptbank</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1b1f24; --mut:#667085; --line:#d8dee4; --card:#f6f8fa; --acc:#15803d; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --mut:#8b949e; --line:#30363d; --card:#161b22; --acc:#4ade80; --warn:#fbbf24; } }
+  * { box-sizing: border-box; }
+  body { margin:0 auto; max-width:760px; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  h1 { font-size:1.4rem; margin:0; }
+  h2 { font-size:1.05rem; margin:22px 0 6px; }
+  .mut { color:var(--mut); font-size:.875rem; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0; }
+  button, .btn, select, input, textarea { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:42px; }
+  button, .btn { background:var(--card); cursor:pointer; display:inline-flex; align-items:center; }
+  button.main, .btn.main { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button.small { min-height:32px; padding:2px 10px; font-size:.85rem; }
+  button:disabled { opacity:.45; cursor:default; }
+  input[type=checkbox] { min-height:0; width:18px; height:18px; padding:0; }
+  textarea { width:100%; resize:vertical; }
+  label.opt { display:flex; gap:8px; align-items:center; min-height:36px; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; }
+  td, th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .card { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; overflow-wrap:anywhere; }
+  .pre { white-space:pre-wrap; }
+  details { border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:8px 0; }
+  summary { cursor:pointer; }
+  li { margin:4px 0; }
+  a { color:var(--acc); }
+  .p { max-height:9.5em; overflow:auto; white-space:pre-wrap; font-size:.92rem; }
+  .tag { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:0 8px; margin-right:4px; font-size:.8rem; color:var(--mut); }
+  .card .row { margin:6px 0 0; }
+  .card input { flex:1; min-width:140px; min-height:34px; padding:4px 8px; font-size:.875rem; }
+  #add { min-height:90px; }
+</style>
+</head>
+<body>
+<h1>promptbank</h1>
+<p>Keep the prompts that worked. Pull them out of your AI chat history into a library you can search, tag and copy from.
+<span class="mut">Everything stays in this browser. Nothing is uploaded.</span></p>
+
+<h2>Your library <span class="mut" id="libcount"></span></h2>
+<div class="row">
+  <input id="lq" type="search" placeholder="Search prompts and tags…" aria-label="Search your library" style="flex:1">
+  <button id="exp">Back up (.json)</button>
+  <label class="btn">Restore
+    <input id="imp" type="file" accept=".json,application/json" hidden>
+  </label>
+</div>
+<div id="lib"></div>
+
+<details>
+  <summary>Add a prompt by hand</summary>
+  <textarea id="add" placeholder="Paste or type a prompt…" aria-label="New prompt"></textarea>
+  <div class="row"><input id="addtags" placeholder="Tags, separated by commas" aria-label="Tags for the new prompt" style="flex:1"><button id="addgo" class="main">Add</button></div>
+</details>
+
+<h2>Find prompts in your chat history</h2>
+<div class="row">
+  <label class="btn main">Pick your export files
+    <input id="file" type="file" accept=".zip,.json,application/zip,application/json" multiple hidden>
+  </label>
+</div>
+<p class="mut" id="status" role="status">Pick the export files you downloaded from Claude, ChatGPT, Gemini, Grok or DeepSeek (.zip or .json).</p>
+<div id="work" hidden>
+  <div class="row">
+    <input id="q" type="search" placeholder="Search what you found…" aria-label="Search found prompts" style="flex:1">
+    <label class="mut">Shortest
+      <select id="min">
+        <option value="40">a sentence</option>
+        <option value="150" selected>a short paragraph</option>
+        <option value="400">a long prompt</option>
+      </select>
+    </label>
+  </div>
+  <label class="opt"><input id="rep" type="checkbox"> Only prompts I used more than once</label>
+  <p class="mut" id="count"></p>
+  <div id="found"></div>
+</div>
+
+<h2>Good to know</h2>
+<ul class="mut">
+  <li>It can't tell which prompts gave good answers. It puts the likely keepers first: prompts you reused, prompts that opened a chat, and longer, detailed ones. You choose what to save.</li>
+  <li>Your library lives in this browser's storage on this device. Use <b>Back up</b> to keep a copy or move it to another device; clearing site data deletes it.</li>
+</ul>
+<p class="mut">Part of the same family as <a href="https://github.com/spencerrios64/chatvault">chatvault</a>, <a href="https://spencerrios64.github.io/chatzip/">chatzip</a> and <a href="https://spencerrios64.github.io/chatrelay/">chatrelay</a>.</p>
+<script>
+// ---------------------------------------------------------------- core (no DOM)
+const iso = v => {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return new Date(v > 1e11 ? v : v * 1000).toISOString();
+  if (typeof v === 'object') {
+    const d = v.$date, n = d && typeof d === 'object' ? d.$numberLong : d;
+    return n == null ? null : iso(isNaN(+n) ? String(n) : +n);
+  }
+  return String(v);
+};
+
+function stripHtml(html) {
+  const ent = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  return html.replace(/<br\s*\/?>|<\/(p|li|h\d|div|tr|pre)>/gi, '\n').replace(/<[^>]*>/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&(\w+);/g, (m, n) => ent[n] || m).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ChatGPT and DeepSeek both export a "mapping" tree of messages.
+function parseMapping(data) {
+  let deepseek = false;
+  const convs = data.map(c => {
+    const map = c.mapping || {};
+    let chain = [], node = c.current_node;
+    if (node) {
+      while (node && map[node]) { chain.push(map[node]); node = map[node].parent; }
+      chain.reverse();
+    } else {
+      node = map.root ? 'root' : Object.keys(map).find(k => !map[k].parent);
+      const seen = new Set();
+      while (node && map[node] && !seen.has(node)) {
+        seen.add(node); chain.push(map[node]);
+        const kids = map[node].children || [];
+        node = kids[kids.length - 1];
+      }
+    }
+    const messages = [];
+    for (const e of chain) {
+      const m = e.message;
+      if (!m) continue;
+      if (Array.isArray(m.fragments)) {
+        deepseek = true;
+        for (const f of m.fragments) {
+          const role = f.type === 'REQUEST' ? 'user' : f.type === 'RESPONSE' ? 'assistant' : null;
+          const text = String(f.content || '').trim();
+          if (role && text) messages.push({ role, text });
+        }
+        continue;
+      }
+      const role = (m.author || {}).role;
+      if (role !== 'user' && role !== 'assistant') continue;
+      const text = ((m.content || {}).parts || []).filter(p => typeof p === 'string').join('\n').trim();
+      if (text) messages.push({ role, text });
+    }
+    return { title: c.title, date: iso(c.create_time || c.inserted_at || c.update_time || c.updated_at), messages };
+  });
+  return { ai: deepseek ? 'DeepSeek' : 'ChatGPT', convs };
+}
+
+function parseClaude(data) {
+  return { ai: 'Claude', convs: data.map(c => {
+    const messages = [];
+    for (const m of c.chat_messages || []) {
+      let text = (m.text || '').trim();
+      if (!text) text = (m.content || []).filter(b => b.type === 'text').map(b => b.text || '').join('\n').trim();
+      if (text) messages.push({ role: m.sender === 'human' ? 'user' : 'assistant', text });
+    }
+    return { title: c.name, date: iso(c.created_at), messages };
+  }) };
+}
+
+function parseGrok(data) {
+  return { ai: 'Grok', convs: data.conversations.map(c => {
+    const info = c.conversation || {}, messages = [];
+    for (const r of c.responses || []) {
+      const m = r.response || r, text = String(m.message || '').trim();
+      if (!text) continue;
+      const who = String(m.sender || '').toLowerCase();
+      messages.push({ role: who === 'human' || who === 'user' ? 'user' : 'assistant', text });
+    }
+    return { title: info.title, date: iso(info.create_time || info.created_at), messages };
+  }) };
+}
+
+// Google Takeout "My Activity" has one entry per prompt and no chat ids: group by day.
+function parseGemini(data) {
+  const days = new Map();
+  for (const it of data) {
+    if (!/gemini/i.test(it.header || '') || !it.title) continue;
+    const day = String(it.time || '').slice(0, 10) || 'undated';
+    const turn = [{ role: 'user', text: String(it.title).replace(/^Prompted\s+/, '').trim() }];
+    const reply = (it.safeHtmlItem || []).map(h => stripHtml(h.html || '')).join('\n').trim();
+    if (reply) turn.push({ role: 'assistant', text: reply });
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push({ time: String(it.time || ''), turn });
+  }
+  return { ai: 'Gemini', convs: [...days].map(([day, turns]) => ({
+    title: 'Gemini prompts', date: day === 'undated' ? null : day,
+    messages: turns.sort((a, b) => a.time.localeCompare(b.time)).flatMap(t => t.turn) })) };
+}
+
+// A chatvault archive: [{source, title, messages:[{role, text}]}]
+function parseArchive(data) {
+  const names = { claude: 'Claude', chatgpt: 'ChatGPT' }, by = new Map();
+  for (const c of data) {
+    const src = String(c.source || 'other'), ai = names[src] || src[0].toUpperCase() + src.slice(1);
+    if (!by.has(ai)) by.set(ai, []);
+    by.get(ai).push({ title: c.title, date: iso(c.created_at || c.updated_at),
+      messages: (c.messages || []).filter(m => (m.text || '').trim()).map(m => ({ role: m.role, text: m.text })) });
+  }
+  return [...by].map(([ai, convs]) => ({ ai, convs }));
+}
+
+// Returns [{ai, convs}] for one parsed JSON document, or [] when it isn't a chat export.
+function detect(doc) {
+  if (Array.isArray(doc) && doc.length && doc[0] && typeof doc[0] === 'object') {
+    const f = doc[0];
+    if ('mapping' in f) return [parseMapping(doc)];
+    if ('chat_messages' in f) return [parseClaude(doc)];
+    if ('header' in f && 'title' in f && 'time' in f) return [parseGemini(doc)].filter(g => g.convs.length);
+    if ('messages' in f && 'source' in f) return parseArchive(doc);
+  }
+  if (doc && Array.isArray(doc.conversations) && doc.conversations.some(c => c && c.responses)) return [parseGrok(doc)];
+  return [];
+}
+
+// Reads the chat files out of an export .zip (or a bare .json) without loading the whole zip.
+async function readExport(file) {
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  if (!(head[0] === 0x50 && head[1] === 0x4b)) return [{ name: file.name, doc: JSON.parse(await file.text()) }];
+  const tail = new DataView(await file.slice(Math.max(0, file.size - 65558)).arrayBuffer());
+  let e = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('not a valid zip file');
+  const count = tail.getUint16(e + 10, true), cdSize = tail.getUint32(e + 12, true), cdOff = tail.getUint32(e + 16, true);
+  if (cdOff === 0xffffffff || count === 0xffff) throw new Error('zip is too large (zip64); unzip it and pick the .json files inside');
+  const cdBuf = await file.slice(cdOff, cdOff + cdSize).arrayBuffer();
+  const cd = new DataView(cdBuf), dec = new TextDecoder(), out = [];
+  for (let n = 0, p = 0; n < count && cd.getUint32(p, true) === 0x02014b50; n++) {
+    const method = cd.getUint16(p + 10, true), csize = cd.getUint32(p + 20, true);
+    const nlen = cd.getUint16(p + 28, true), xlen = cd.getUint16(p + 30, true), clen = cd.getUint16(p + 32, true);
+    const off = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cdBuf, p + 46, nlen));
+    p += 46 + nlen + xlen + clen;
+    const m = /(^|\/)(conversations[^\/]*|prod-grok-backend|MyActivity)\.json$/i.exec(name);
+    if (!m || (/^MyActivity$/i.test(m[2]) && !/gemini/i.test(name))) continue;
+    const lh = new DataView(await file.slice(off, off + 30).arrayBuffer());
+    const start = off + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+    let stream = file.slice(start, start + csize).stream();
+    if (method === 8) stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
+    else if (method !== 0) throw new Error('unsupported zip compression');
+    out.push({ name, doc: JSON.parse(await new Response(stream).text()) });
+  }
+  return out;
+}
+
+
+// Reads every picked file and returns a flat list of chats.
+async function loadFiles(files, say) {
+  const chats = [], problems = [];
+  for (const file of files) {
+    say(`Reading ${file.name}…`);
+    try {
+      const found = (await readExport(file)).flatMap(d => detect(d.doc));
+      if (!found.length) problems.push(`${file.name}: no chats recognised`);
+      for (const g of found) for (const c of g.convs) if (c.messages.length)
+        chats.push({ ai: g.ai, title: String(c.title || 'Untitled'), date: (c.date || '').slice(0, 10), messages: c.messages });
+    } catch (err) { problems.push(`${file.name}: ${err.message}`); }
+  }
+  return { chats, problems };
+}
+
+const norm = t => String(t).toLowerCase().replace(/\s+/g, ' ').trim();
+const parseTags = s => [...new Set(String(s).split(',').map(t => t.trim().replace(/^#/, '').toLowerCase()).filter(Boolean))];
+
+// Every message of yours that is long enough, merged when you sent the same text more than once. Likely keepers first.
+function candidates(chats, minLen) {
+  const by = new Map();
+  for (const c of chats) {
+    let first = true;
+    for (const m of c.messages) {
+      if (m.role !== 'user') continue;
+      const opened = first, text = m.text.trim(), k = norm(text);
+      first = false;
+      if (text.length < minLen) continue;
+      const e = by.get(k);
+      if (e) { e.uses++; e.first = e.first || opened; if (c.date > e.date) e.date = c.date; }
+      else by.set(k, { text, ai: c.ai, title: c.title, date: c.date, first: opened, uses: 1 });
+    }
+  }
+  return [...by.values()].map(e => Object.assign(e, { score: (e.uses - 1) * 3 + (e.first ? 1 : 0) + Math.min(e.text.length, 1500) / 500 }))
+    .sort((a, b) => b.score - a.score || b.date.localeCompare(a.date));
+}
+
+// Library items: {id, text, tags, from, added}. Returns false when the prompt is already saved.
+function addItem(lib, text, tags, from) {
+  text = String(text).trim();
+  if (!text || lib.some(i => norm(i.text) === norm(text))) return false;
+  lib.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), text, tags: tags || [], from: from || '', added: new Date().toISOString().slice(0, 10) });
+  return true;
+}
+
+function searchLib(lib, q) {
+  const terms = norm(q).split(' ').filter(Boolean);
+  return lib.filter(i => { const hay = norm(i.text + ' ' + i.tags.map(t => '#' + t).join(' ')); return terms.every(t => hay.includes(t)); });
+}
+
+// Merges a backup into the library; returns how many prompts were new.
+function mergeLib(lib, data) {
+  if (!Array.isArray(data)) throw new Error('this is not a promptbank backup');
+  let n = 0;
+  for (const i of [...data].reverse()) {
+    if (!i || typeof i.text !== 'string') continue;
+    if (addItem(lib, i.text, Array.isArray(i.tags) ? parseTags(i.tags.join(',')) : [], String(i.from || ''))) n++;
+  }
+  return n;
+}
+
+if (typeof module !== 'undefined') module.exports = { detect, candidates, addItem, searchLib, mergeLib, parseTags, norm };
+
+// ---------------------------------------------------------------- page
+if (typeof document !== 'undefined') {
+  const $ = id => document.getElementById(id);
+  const el = (tag, props, ...kids) => { const n = Object.assign(document.createElement(tag), props || {}); n.append(...kids); return n; };
+  const copy = async (text, btn) => {
+    const old = btn.textContent;
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; } catch (e) { btn.textContent = 'Copy failed'; }
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  };
+  const download = (name, blob) => {
+    const a = el('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  };
+  let lib = [], chats = [], warned = false;
+  try { const v = JSON.parse(localStorage.getItem('promptbank') || '[]'); if (Array.isArray(v)) lib = v; } catch (e) {}
+  const save = () => {
+    try { localStorage.setItem('promptbank', JSON.stringify(lib)); }
+    catch (e) { if (!warned) { warned = true; alert("This browser wouldn't save the library (storage is full or blocked). Use Back up to keep a copy."); } }
+  };
+
+  function renderLib() {
+    const rows = searchLib(lib, $('lq').value);
+    $('libcount').textContent = lib.length ? `(${lib.length})` : '';
+    $('lib').replaceChildren(...rows.slice(0, 200).map(i => {
+      const tags = el('input', { value: i.tags.join(', '), placeholder: 'Tags, separated by commas' });
+      tags.setAttribute('aria-label', 'Tags');
+      tags.onchange = () => { i.tags = parseTags(tags.value); tags.value = i.tags.join(', '); save(); };
+      const cp = el('button', { className: 'small main', textContent: 'Copy' });
+      cp.onclick = () => copy(i.text, cp);
+      const del = el('button', { className: 'small', textContent: 'Delete' });
+      del.onclick = () => { if (confirm('Delete this prompt from your library?')) { lib = lib.filter(x => x !== i); save(); renderLib(); renderFound(); } };
+      return el('div', { className: 'card' }, el('div', { className: 'p', textContent: i.text }),
+        el('div', { className: 'row' }, tags, cp, del), el('div', { className: 'mut', textContent: [i.from, i.added && 'saved ' + i.added].filter(Boolean).join(' · ') }));
+    }));
+    if (!rows.length) $('lib').append(el('p', { className: 'mut', textContent: lib.length ? 'Nothing in your library matches.' : 'Your library is empty. Save prompts from your chat history below, or add one by hand.' }));
+    else if (rows.length > 200) $('lib').append(el('p', { className: 'mut', textContent: `Showing 200 of ${rows.length}. Search to narrow down.` }));
+  }
+
+  function renderFound() {
+    if (!chats.length) return;
+    const q = norm($('q').value), saved = new Set(lib.map(i => norm(i.text)));
+    const rows = candidates(chats, +$('min').value).filter(c => (!$('rep').checked || c.uses > 1) && (!q || norm(c.text + ' ' + c.title).includes(q)));
+    $('count').textContent = `${rows.length} prompts` + (rows.length > 200 ? ', showing the first 200. Search to narrow down.' : '.');
+    $('found').replaceChildren(...rows.slice(0, 200).map(c => {
+      const has = saved.has(norm(c.text));
+      const add = el('button', { className: 'small main', textContent: has ? 'Saved' : 'Save to library', disabled: has });
+      add.onclick = () => { addItem(lib, c.text, [], `${c.ai} · ${c.title}`); save(); renderLib(); add.textContent = 'Saved'; add.disabled = true; };
+      const info = el('span', { className: 'mut', textContent: `${c.ai} · ${c.title.slice(0, 60)}${c.date ? ' · ' + c.date : ''}` });
+      const badges = [c.uses > 1 && `used ${c.uses} times`, c.first && 'opened a chat'].filter(Boolean).map(t => el('span', { className: 'tag', textContent: t }));
+      return el('div', { className: 'card' }, el('div', { className: 'p', textContent: c.text }), el('div', { className: 'row' }, add, ...badges, info));
+    }));
+  }
+
+  $('file').onchange = async ev => {
+    const r = await loadFiles(ev.target.files, t => { $('status').textContent = t; });
+    ev.target.value = '';
+    chats.push(...r.chats);
+    $('work').hidden = !chats.length;
+    $('status').textContent = (chats.length ? `${chats.length} chats loaded.` : 'No chats found yet.') + (r.problems.length ? ' Problems: ' + r.problems.join('; ') : '');
+    renderFound();
+  };
+  let timer;
+  $('q').oninput = () => { clearTimeout(timer); timer = setTimeout(renderFound, 200); };
+  $('min').onchange = renderFound;
+  $('rep').onchange = renderFound;
+  $('lq').oninput = renderLib;
+  $('addgo').onclick = () => {
+    if (!$('add').value.trim()) return;
+    if (addItem(lib, $('add').value, parseTags($('addtags').value), 'added by hand')) { $('add').value = ''; $('addtags').value = ''; save(); renderLib(); }
+    else alert('That prompt is already in your library.');
+  };
+  $('exp').onclick = () => download('promptbank-backup.json', new Blob([JSON.stringify(lib, null, 2)], { type: 'application/json' }));
+  $('imp').onchange = async ev => {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    try { const n = mergeLib(lib, JSON.parse(await file.text())); save(); renderLib(); renderFound(); alert(`Added ${n} new prompt${n === 1 ? '' : 's'} from the backup.`); }
+    catch (e) { alert(`Couldn't read that backup: ${e.message}`); }
+  };
+  renderLib();
+}
+</script>
+</body>
+</html>
