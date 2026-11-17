@@ -1,0 +1,16 @@
+{
+  "name": "promptbank",
+  "owner": {
+    "name": "spencerrios64"
+  },
+  "metadata": {
+    "description": "Keep the prompts that worked: find them in your AI chat history and save, tag and search them in a library."
+  },
+  "plugins": [
+    {
+      "name": "promptbank",
+      "source": "./plugin",
+      "description": "Keep the prompts that worked: find them in your AI chat history and save, tag and search them in a library."
+    }
+  ]
+}
