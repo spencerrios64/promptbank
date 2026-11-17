@@ -396,7 +396,7 @@ if (typeof document !== 'undefined') {
 if(document.getElementById('hubbar'))return;
 var FILE=location.protocol==='file:',P=location.pathname.split('/').filter(Boolean);
 var me=FILE?P[P.length-2]:P[0];
-var GROUPS=[['Collect','chatzip'],['Clean','chatscrub chatdedupe'],['Understand','chatstats chatsearch chatgraph chatbrief'],['Reuse','promptbank'],['Use','chatrelay chatbridge chatcompare chatevals'],['All-in-one','chatpipeline']];
+var GROUPS=[['Collect','chatzip chatvault'],['Clean','chatscrub chatdedupe'],['Understand','chatstats chatsearch chatgraph chatbrief'],['Reuse','promptbank'],['Use','chatrelay chatbridge chatcompare chatevals'],['All-in-one','chatpipeline']];
 var href=function(t){return '../'+t+'/'+(FILE?'index.html':'')+'#hub'};
 var hubHref=FILE?'../index.html':'../chathub/';
 function open(){return new Promise(function(res,rej){var r=indexedDB.open('chathub',1);r.onupgradeneeded=function(){r.result.createObjectStore('files',{keyPath:'name'})};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}})}
