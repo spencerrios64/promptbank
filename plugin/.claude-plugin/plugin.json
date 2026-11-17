@@ -1,0 +1,9 @@
+{
+  "name": "promptbank",
+  "version": "0.1.0",
+  "description": "Keep the prompts that worked: find them in your AI chat history and save, tag and search them in a library.",
+  "author": { "name": "spencerrios64" },
+  "homepage": "https://spencerrios64.github.io/promptbank/",
+  "repository": "https://github.com/spencerrios64/promptbank",
+  "keywords": ["prompts", "library", "chat history", "templates"]
+}
